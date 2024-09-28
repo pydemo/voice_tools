@@ -2,10 +2,12 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+records/
+*.wav
+podcast/
 # C extensions
 *.so
-
+cache
 # Distribution / packaging
 .Python
 build/
