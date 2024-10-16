@@ -4,7 +4,6 @@ __pycache__/
 *$py.class
 records/
 *.wav
-podcast/
 # C extensions
 *.so
 cache

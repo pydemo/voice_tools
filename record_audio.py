@@ -4,7 +4,7 @@ import click
 
 @click.command()
 @click.option('--out', 'output_filename', required=True, type=str, help="Path to the output WAV file")
-@click.option('--device_index', default=1, type=int, help="Device index for recording audio")
+@click.option('--device_index', default=2, type=int, help="Device index for recording audio")
 @click.option('--record_seconds', default=10, type=int, help="Duration to record in seconds")
 def main(output_filename, device_index, record_seconds):
     # Set parameters

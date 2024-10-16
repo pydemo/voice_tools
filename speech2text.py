@@ -24,8 +24,7 @@ def main(input_file, output_file):
         tokenizer=processor.tokenizer,
         feature_extractor=processor.feature_extractor,
         torch_dtype=torch_dtype,
-        device=device,
-        language='en'
+        device=device
     )
 
     # Process the input audio file
