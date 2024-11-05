@@ -1,12 +1,11 @@
 import pyaudio
 import wave
-import click
-from datetime import datetime
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+import click 
+
 @click.command()
-@click.option('--out', 'output_filename', default=f'test_{timestamp}.wav', type=str, help="Path to the output WAV file")
+@click.option('--out', 'output_filename', default='test.wav', type=str, help="Path to the output WAV file")
 @click.option('--device_index', default=0, type=int, help="Device index for recording audio")
-@click.option('--record_seconds', default=10, type=int, help="Duration to record in seconds (used as max limit)")
+@click.option('--record_seconds', default=10, type=int, help="Duration to record in seconds")
 def main(output_filename, device_index, record_seconds):
     # Set parameters
     FORMAT = pyaudio.paInt16  # 16-bit resolution
@@ -25,18 +24,17 @@ def main(output_filename, device_index, record_seconds):
                         input_device_index=device_index,
                         frames_per_buffer=CHUNK)
 
-    print(f"Recording from device index {device_index}. Press Ctrl+C to stop recording...")
+    print(f"Recording from device index {device_index} for {record_seconds} seconds...")
 
     # Initialize array to store frames
     frames = []
 
-    try:
-        # Store data in chunks until interrupted
-        while True:
-            data = stream.read(CHUNK)
-            frames.append(data)
-    except KeyboardInterrupt:
-        print("\nRecording stopped by user.")
+    # Store data in chunks for the given record_seconds
+    for _ in range(0, int(RATE / CHUNK * record_seconds)):
+        data = stream.read(CHUNK)
+        frames.append(data)
+
+    print("Recording finished.")
 
     # Stop and close the stream
     stream.stop_stream()

@@ -12,11 +12,9 @@ def capture_audio_and_transcribe(trackName, DURATION, CHUNK_SIZE=1024):
     recognizer = sr.Recognizer()
     
     with pyaudio.PyAudio() as p:
-        selected_device = None
         try:
             for i in range(p.get_device_count()):
                 device_info = p.get_device_info_by_index(i)
-                print(f"Device {i}: {device_info['name']} - Max Input Channels: {device_info['maxInputChannels']}")
                 if "Loopback" in device_info['name'] and device_info['maxInputChannels'] > 0:
                     print(f"Using device: {device_info['name']} (Index: {i})")
                     selected_device = device_info
@@ -28,14 +26,8 @@ def capture_audio_and_transcribe(trackName, DURATION, CHUNK_SIZE=1024):
             print("WASAPI not available.")
             exit()
         
-        # Check if selected_device is valid
-        if selected_device is None:
-            print("No suitable device was found. Exiting.")
-            exit()
-
         supported_sample_rate = int(selected_device["defaultSampleRate"])
         print(f"Using sample rate: {supported_sample_rate}")
-
         
         wave_file = wave.open(filename, 'wb')
         wave_file.setnchannels(1)  # Mono
@@ -64,7 +56,6 @@ def capture_audio_and_transcribe(trackName, DURATION, CHUNK_SIZE=1024):
         ) as stream:
             print(f"Recording and transcribing for {DURATION} seconds.")
             time.sleep(DURATION)
-            print('Recorded to ',filename)
         
         wave_file.close()
 

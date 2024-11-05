@@ -5,7 +5,7 @@ from pprint import pprint as pp
 CHUNK = 1024
 FORMAT = pyaudio.paInt16
 RATE = 44100
-RECORD_SECONDS = 5
+RECORD_SECONDS = 20
 
 p = pyaudio.PyAudio()
 
