@@ -1,0 +1,1 @@
+start "" python wx_record_both.py

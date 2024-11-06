@@ -9,7 +9,8 @@ import time
 import os
 
 out_dir = 'output'
-file_prefix='test'
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+file_prefix=f'call_{timestamp}'
 os.makedirs(join(out_dir,file_prefix), exist_ok=True)
 
 class AudioRecorder:
@@ -468,7 +469,7 @@ class AudioRecorderFrame(wx.Frame):
             self.log_message(f"Selected speaker: {device_info['name']}")
     
     def populate_devices(self):
-        """Populate both device choices"""
+        """Populate both device choices with the default system speaker selected if available."""
         # Microphones
         self.mic_choice.Clear()
         self.microphones = self.recorder.get_microphones()
@@ -487,6 +488,25 @@ class AudioRecorderFrame(wx.Frame):
         self.speaker_choice.Clear()
         self.speakers = self.recorder.get_speakers()
         
+        default_speaker_index = 0
+        with pyaudiowpatch.PyAudio() as p:
+            try:
+                # Get default WASAPI output device info
+                wasapi_info = p.get_host_api_info_by_type(pyaudiowpatch.paWASAPI)
+                default_speakers = p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
+                
+                # Find corresponding loopback device if the default device is not a loopback
+                if not default_speakers["isLoopbackDevice"]:
+                    for index, loopback in enumerate(self.speakers):
+                        if default_speakers["name"] in loopback["name"]:
+                            default_speaker_index = index
+                            break
+                    else:
+                        self.log_message("Default loopback output device not found.")
+            except OSError:
+                self.log_message("WASAPI not available on the system")
+
+        # Populate the speaker dropdown with available devices and set the default selection
         if not self.speakers:
             self.log_message("No speaker devices found!")
             self.speaker_record_btn.Disable()
@@ -494,7 +514,7 @@ class AudioRecorderFrame(wx.Frame):
         else:
             for speaker in self.speakers:
                 self.speaker_choice.Append(speaker['name'])
-            self.speaker_choice.SetSelection(0)
+            self.speaker_choice.SetSelection(default_speaker_index)
             self.speaker_record_btn.Enable()
         
         # Enable "Record Both" only if both device types are available
@@ -502,6 +522,8 @@ class AudioRecorderFrame(wx.Frame):
             self.both_btn.Enable()
         else:
             self.both_btn.Disable()
+
+
     
     def on_refresh(self, event):
         self.log_message("Refreshing device list...")
