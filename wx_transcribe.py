@@ -4,6 +4,7 @@ from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 import threading
 import os
 import sys
+from datetime import datetime
 
 class AudioTranscriber:
     def __init__(self):
@@ -62,6 +63,10 @@ class TranscriptionFrame(wx.Frame):
         else:
             # If running as script
             self.script_dir = os.path.dirname(os.path.abspath(__file__))
+            
+        # Create transcriptions directory if it doesn't exist
+        self.transcriptions_dir = os.path.join(self.script_dir, "transcriptions")
+        os.makedirs(self.transcriptions_dir, exist_ok=True)
         
         self.init_ui()
         
@@ -79,9 +84,8 @@ class TranscriptionFrame(wx.Frame):
             panel, 
             message="Choose an audio file",
             wildcard="Audio files (*.mp3;*.wav)|*.mp3;*.wav",
-            # Set initial directory using the initialDirectory parameter
             style=wx.FLP_DEFAULT_STYLE | wx.FLP_USE_TEXTCTRL,
-            path=os.path.join(self.script_dir, "")  # Empty string to ensure it's treated as a directory
+            path=os.path.join(self.script_dir, "")
         )
         file_sizer.Add(self.file_picker, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
         
@@ -122,6 +126,24 @@ class TranscriptionFrame(wx.Frame):
         
         # Initially disable the transcribe button until model is loaded
         self.transcribe_btn.Enable(False)
+        
+    def save_transcription(self, audio_file, transcription):
+        """Save transcription to file"""
+        # Get the audio filename without extension
+        audio_basename = os.path.splitext(os.path.basename(audio_file))[0]
+        
+        # Create filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{audio_basename}_{timestamp}.txt"
+        
+        # Full path to save file
+        save_path = os.path.join(self.transcriptions_dir, filename)
+        
+        # Save transcription
+        with open(save_path, 'w', encoding='utf-8') as f:
+            f.write(transcription)
+            
+        return save_path
         
     def init_model(self):
         """Initialize the model in a separate thread"""
@@ -166,7 +188,17 @@ class TranscriptionFrame(wx.Frame):
                 audio_file,
                 progress_callback=self.update_progress
             )
-            wx.CallAfter(self.output_ctrl.SetValue, transcription)
+            
+            # Save transcription to file
+            save_path = self.save_transcription(audio_file, transcription)
+            
+            # Update UI with transcription and save location
+            def update_ui():
+                self.output_ctrl.SetValue(transcription)
+                self.status_text.SetLabel(f"Transcription saved to: {save_path}")
+            
+            wx.CallAfter(update_ui)
+            
         except Exception as e:
             wx.CallAfter(
                 wx.MessageBox,
