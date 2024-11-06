@@ -7,6 +7,9 @@ from datetime import datetime
 import threading
 import time
 import os
+import subprocess   
+import platform
+
 
 out_dir = 'output'
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -372,6 +375,8 @@ class AudioRecorderFrame(wx.Frame):
         # Initialize recorder
         self.recorder = AudioRecorder()
         self.recorder.set_callback(self.log_message)
+        self.last_mic_file = None
+        self.last_speaker_file = None        
         
         self.init_ui()
         self.populate_devices()
@@ -399,10 +404,12 @@ class AudioRecorderFrame(wx.Frame):
         mic_label = wx.StaticText(panel, label='Microphone:')
         self.mic_choice = wx.Choice(panel)
         self.mic_record_btn = wx.Button(panel, label='Record Microphone')
+        self.play_mic_btn = wx.Button(panel, label='Play Mic')
         
         mic_device_sizer.Add(mic_label, 0, wx.ALL | wx.CENTER, 5)
         mic_device_sizer.Add(self.mic_choice, 1, wx.ALL | wx.EXPAND, 5)
         mic_device_sizer.Add(self.mic_record_btn, 0, wx.ALL, 5)
+        mic_device_sizer.Add(self.play_mic_btn, 0, wx.ALL, 5)
         
         mic_sizer.Add(mic_device_sizer, 0, wx.ALL | wx.EXPAND, 5)
         
@@ -414,10 +421,12 @@ class AudioRecorderFrame(wx.Frame):
         speaker_label = wx.StaticText(panel, label='Speaker:')
         self.speaker_choice = wx.Choice(panel)
         self.speaker_record_btn = wx.Button(panel, label='Record Speaker')
+        self.play_speaker_btn = wx.Button(panel, label='Play Speaker')
         
         speaker_device_sizer.Add(speaker_label, 0, wx.ALL | wx.CENTER, 5)
         speaker_device_sizer.Add(self.speaker_choice, 1, wx.ALL | wx.EXPAND, 5)
         speaker_device_sizer.Add(self.speaker_record_btn, 0, wx.ALL, 5)
+        speaker_device_sizer.Add(self.play_speaker_btn, 0, wx.ALL, 5)
         
         speaker_sizer.Add(speaker_device_sizer, 0, wx.ALL | wx.EXPAND, 5)
         
@@ -439,6 +448,8 @@ class AudioRecorderFrame(wx.Frame):
         self.mic_record_btn.Bind(wx.EVT_BUTTON, lambda evt: self.on_record(evt, "mic"))
         self.speaker_record_btn.Bind(wx.EVT_BUTTON, lambda evt: self.on_record(evt, "speaker"))
         self.refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh)
+        self.play_mic_btn.Bind(wx.EVT_BUTTON, self.on_play_mic)
+        self.play_speaker_btn.Bind(wx.EVT_BUTTON, self.on_play_speaker)
         self.both_btn.Bind(wx.EVT_BUTTON, self.on_both)
         self.file_prefix.Bind(wx.EVT_TEXT, self.on_file_prefix)
         
@@ -453,6 +464,32 @@ class AudioRecorderFrame(wx.Frame):
         # Add status bar
         self.CreateStatusBar()
         self.SetStatusText('Ready')
+    def play_audio(self, file_name):
+        """Plays an audio file using the default system media player."""
+        try:
+            if platform.system() == "Darwin":  # macOS
+                subprocess.run(['open', file_name], check=True)
+            elif platform.system() == "Windows":  # Windows
+                subprocess.run(['start', file_name], shell=True, check=True)
+            elif platform.system() == "Linux":  # Linux
+                subprocess.run(['xdg-open', file_name], check=True)
+            else:
+                self.log_message("Unsupported OS for automatic playback.")
+        except Exception as e:
+            self.log_message(f"Error playing audio: {str(e)}")
+
+    def on_play_mic(self, event):
+        if self.last_mic_file:
+            self.play_audio(self.last_mic_file)
+            self.log_message(f"Playing microphone recording: {self.last_mic_file}")
+        else:
+            self.log_message("No microphone recording available to play.")  
+    def on_play_speaker(self, event):
+        if self.last_speaker_file:
+            self.play_audio(self.last_speaker_file)
+            self.log_message(f"Playing speaker recording: {self.last_speaker_file}")
+        else:
+            self.log_message("No speaker recording available to play.")                  
     def on_file_prefix(self, event):
         global file_prefix
         file_prefix = self.file_prefix.GetValue()
@@ -548,6 +585,7 @@ class AudioRecorderFrame(wx.Frame):
                         self.speaker_record_btn.Disable()
                         self.both_btn.Disable()
                         self.SetStatusText('Recording from microphone...')
+                        
             else:  # speaker
                 selection = self.speaker_choice.GetSelection()
                 if selection >= 0:
@@ -558,6 +596,7 @@ class AudioRecorderFrame(wx.Frame):
                         self.mic_record_btn.Disable()
                         self.both_btn.Disable()
                         self.SetStatusText('Recording from speaker...')
+                        self.last_speaker_file = filename
         else:
             self.SetStatusText('Stopping...')
             filename = self.recorder.stop_recording(source)
@@ -567,9 +606,11 @@ class AudioRecorderFrame(wx.Frame):
             if source == "mic":
                 self.mic_record_btn.SetLabel('Record Microphone')
                 self.speaker_record_btn.Enable()
+                self.last_mic_file = filename
             else:
                 self.speaker_record_btn.SetLabel('Record Speaker')
                 self.mic_record_btn.Enable()
+                self.last_speaker_file = filename
             
             self.both_btn.Enable()
             self.SetStatusText('Ready')
@@ -593,7 +634,8 @@ class AudioRecorderFrame(wx.Frame):
             # Stop both recordings
             self.SetStatusText('Stopping...')
             mic_file, speaker_file = self.recorder.stop_both_recordings()
-            
+            self.last_mic_file = mic_file
+            self.last_speaker_file = speaker_file
             if mic_file:
                 self.log_message(f"Microphone recording saved to: {mic_file}")
             if speaker_file:
