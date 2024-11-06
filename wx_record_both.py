@@ -9,7 +9,8 @@ import time
 import os
 
 out_dir = 'output'
-os.makedirs(out_dir, exist_ok=True)
+file_prefix='test'
+os.makedirs(join(out_dir,file_prefix), exist_ok=True)
 
 class AudioRecorder:
     def __init__(self):
@@ -115,13 +116,15 @@ class AudioRecorder:
         return True
 
     def start_recording_speaker(self, device_info):
+        global file_prefix
         """Start recording from speaker"""
         if self.recording:
             return False
             
         self.recording = True
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.current_filename = join(out_dir, f'speaker_recording_{timestamp}.wav')
+        os.makedirs(join(out_dir,file_prefix), exist_ok=True)
+        self.current_filename = join(out_dir,file_prefix, f'speaker_recording_{timestamp}.wav')
         
         def record_thread():
             try:
@@ -160,6 +163,7 @@ class AudioRecorder:
         return self.current_filename
 
     def start_both_recordings(self, mic_info, speaker_info):
+        global file_prefix
         """Start both microphone and speaker recordings"""
         if self.recording:
             return False
@@ -172,7 +176,8 @@ class AudioRecorder:
         
         # Start speaker recording
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.current_filename = join(out_dir, f'speaker_recording_{timestamp}.wav')
+        os.makedirs(join(out_dir,file_prefix), exist_ok=True)
+        self.current_filename = join(out_dir,file_prefix, f'speaker_recording_{timestamp}.wav')
         
         def mic_thread():
             try:
@@ -239,6 +244,7 @@ class AudioRecorder:
         return True
     
     def stop_recording(self, recording_type="mic"):
+        global out_dir, file_prefix
         """Stop recording and save the file"""
         if not self.recording:
             return None
@@ -250,7 +256,8 @@ class AudioRecorder:
                 return None
                 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = join(out_dir, f'mic_recording_{timestamp}.wav')
+            os.makedirs(join(out_dir,file_prefix), exist_ok=True)
+            filename = join(out_dir, file_prefix, f'mic_recording_{timestamp}.wav')
             
             try:
                 wf = wave.open(filename, 'wb')
@@ -284,6 +291,7 @@ class AudioRecorder:
                 return None
 
     def stop_both_recordings(self):
+        global out_dir, file_prefix
         """Stop both recordings and save files"""
         if not self.recording:
             return None, None
@@ -294,7 +302,8 @@ class AudioRecorder:
         try:
             # Save microphone recording
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            mic_filename = join(out_dir, f'mic_recording_{timestamp}.wav')
+            os.makedirs(join(out_dir,file_prefix), exist_ok=True)
+            mic_filename = join(out_dir,file_prefix, f'mic_recording_{timestamp}.wav')
             
             # Properly close streams first
             try:
@@ -368,6 +377,7 @@ class AudioRecorderFrame(wx.Frame):
         self.log_message("Application started")
         
     def init_ui(self):
+        global file_prefix
         """Initialize the user interface"""
         panel = wx.Panel(self)
         main_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -413,9 +423,13 @@ class AudioRecorderFrame(wx.Frame):
         # Refresh and Record Both buttons in horizontal layout
         button_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.refresh_btn = wx.Button(panel, label='Refresh Devices')
+        # add text ctrl for file prefix
+        
+        self.file_prefix= wx.TextCtrl(panel, value=file_prefix)
         self.both_btn = wx.Button(panel, label='Record Both')
         
         button_sizer.Add(self.refresh_btn, 0, wx.ALL, 5)
+        button_sizer.Add(self.file_prefix, 0, wx.ALL, 5)
         button_sizer.Add(self.both_btn, 0, wx.ALL, 5)
         
         # Bind events
@@ -425,6 +439,7 @@ class AudioRecorderFrame(wx.Frame):
         self.speaker_record_btn.Bind(wx.EVT_BUTTON, lambda evt: self.on_record(evt, "speaker"))
         self.refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh)
         self.both_btn.Bind(wx.EVT_BUTTON, self.on_both)
+        self.file_prefix.Bind(wx.EVT_TEXT, self.on_file_prefix)
         
         # Add everything to main sizer
         main_sizer.Add(self.log_list, 1, wx.ALL | wx.EXPAND, 5)
@@ -437,7 +452,9 @@ class AudioRecorderFrame(wx.Frame):
         # Add status bar
         self.CreateStatusBar()
         self.SetStatusText('Ready')
-        
+    def on_file_prefix(self, event):
+        global file_prefix
+        file_prefix = self.file_prefix.GetValue()
     def on_mic_change(self, event):
         selection = self.mic_choice.GetSelection()
         if selection >= 0:
