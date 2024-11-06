@@ -5,28 +5,8 @@ import threading
 import os
 import sys
 from datetime import datetime
-from abc import ABC, abstractmethod
 
-class BaseTranscriber(ABC):
-    """Abstract base class for transcribers"""
-    @abstractmethod
-    def initialize_model(self, model_id):
-        pass
-    
-    @abstractmethod
-    def transcribe(self, audio_file, progress_callback=None):
-        pass
-    
-    @abstractmethod
-    def get_available_models(self):
-        pass
-        
-    @property
-    @abstractmethod
-    def name(self):
-        pass
-
-class HuggingFaceTranscriber(BaseTranscriber):
+class AudioTranscriber:
     def __init__(self):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
@@ -34,19 +14,8 @@ class HuggingFaceTranscriber(BaseTranscriber):
         self.processor = None
         self.pipe = None
         
-    @property
-    def name(self):
-        return "HuggingFace Transformers"
-        
-    def get_available_models(self):
-        return [
-            "openai/whisper-large-v3",
-            "openai/whisper-medium",
-            "openai/whisper-small",
-            "openai/whisper-base"
-        ]
-        
-    def initialize_model(self, model_id):
+    def initialize_model(self, model_id="openai/whisper-large-v3"):
+        """Initialize the transcription model"""
         self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
             model_id, 
             torch_dtype=self.torch_dtype, 
@@ -68,6 +37,7 @@ class HuggingFaceTranscriber(BaseTranscriber):
         )
     
     def transcribe(self, audio_file, progress_callback=None):
+        """Transcribe the audio file"""
         if self.pipe is None:
             raise RuntimeError("Model not initialized. Call initialize_model first.")
             
@@ -81,33 +51,10 @@ class HuggingFaceTranscriber(BaseTranscriber):
             
         return result["text"]
 
-class TranscriberRegistry:
-    """Registry for available transcriber types"""
-    def __init__(self):
-        self.transcribers = {}
-        
-    def register(self, transcriber_class):
-        instance = transcriber_class()
-        self.transcribers[instance.name] = transcriber_class
-        
-    def get_transcriber(self, name):
-        if name not in self.transcribers:
-            raise ValueError(f"Unknown transcriber type: {name}")
-        return self.transcribers[name]()
-        
-    def get_available_transcribers(self):
-        return list(self.transcribers.keys())
-
 class TranscriptionFrame(wx.Frame):
     def __init__(self):
         super().__init__(parent=None, title='Audio Transcription Tool', size=(800, 600))
-        
-        # Initialize transcriber registry
-        self.registry = TranscriberRegistry()
-        self.registry.register(HuggingFaceTranscriber)
-        
-        # Initial transcriber
-        self.transcriber = None
+        self.transcriber = AudioTranscriber()
         
         # Get the directory where the script is located
         if getattr(sys, 'frozen', False):
@@ -120,6 +67,10 @@ class TranscriptionFrame(wx.Frame):
         os.makedirs(self.transcriptions_dir, exist_ok=True)
         
         self.init_ui()
+        
+        # Start model initialization in a separate thread
+        self.init_model_thread = threading.Thread(target=self.init_model)
+        self.init_model_thread.start()
 
     def init_ui(self):
         panel = wx.Panel(self)
@@ -136,29 +87,17 @@ class TranscriptionFrame(wx.Frame):
         )
         file_sizer.Add(self.file_picker, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
         
-        # Transcriber and model selection
-        selector_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        
-        # Transcriber type dropdown
-        transcriber_label = wx.StaticText(panel, label="Transcriber:")
-        self.transcriber_choice = wx.Choice(panel, choices=self.registry.get_available_transcribers())
-        self.transcriber_choice.SetSelection(0)
-        self.transcriber_choice.Bind(wx.EVT_CHOICE, self.on_transcriber_changed)
-        
         # Model selection dropdown
+        model_sizer = wx.BoxSizer(wx.HORIZONTAL)
         model_label = wx.StaticText(panel, label="Model:")
-        self.model_choice = wx.Choice(panel, choices=[])
-        self.model_choice.Bind(wx.EVT_CHOICE, self.on_model_changed)
-        
-        selector_sizer.Add(transcriber_label, flag=wx.ALL|wx.CENTER, border=5)
-        selector_sizer.Add(self.transcriber_choice, flag=wx.ALL, border=5)
-        selector_sizer.Add(model_label, flag=wx.ALL|wx.CENTER, border=5)
-        selector_sizer.Add(self.model_choice, flag=wx.ALL, border=5)
+        self.model_choice = wx.Choice(panel, choices=["whisper-large-v3"])
+        self.model_choice.SetSelection(0)
+        model_sizer.Add(model_label, flag=wx.ALL|wx.CENTER, border=5)
+        model_sizer.Add(self.model_choice, flag=wx.ALL, border=5)
         
         # Transcribe button
         self.transcribe_btn = wx.Button(panel, label='Transcribe')
         self.transcribe_btn.Bind(wx.EVT_BUTTON, self.on_transcribe)
-        self.transcribe_btn.Enable(False)
         
         # Progress bar
         self.progress = wx.Gauge(panel, range=100, size=(250, 25))
@@ -175,7 +114,7 @@ class TranscriptionFrame(wx.Frame):
         
         # Add everything to the main sizer
         main_sizer.Add(file_sizer, flag=wx.EXPAND|wx.ALL, border=5)
-        main_sizer.Add(selector_sizer, flag=wx.EXPAND|wx.ALL, border=5)
+        main_sizer.Add(model_sizer, flag=wx.EXPAND|wx.ALL, border=5)
         main_sizer.Add(self.transcribe_btn, flag=wx.EXPAND|wx.ALL, border=5)
         main_sizer.Add(self.progress, flag=wx.EXPAND|wx.ALL, border=5)
         main_sizer.Add(self.status_text, flag=wx.EXPAND|wx.ALL, border=5)
@@ -183,8 +122,8 @@ class TranscriptionFrame(wx.Frame):
         
         panel.SetSizer(main_sizer)
         
-        # Initialize first transcriber
-        self.on_transcriber_changed(None)
+        # Initially disable the transcribe button until model is loaded
+        self.transcribe_btn.Enable(False)
 
     def get_relative_path(self, full_path):
         """Get path relative to script directory"""
@@ -229,44 +168,16 @@ class TranscriptionFrame(wx.Frame):
         
         # Save transcription
         with open(save_path, 'w', encoding='utf-8') as f:
-            f.write(f"Source: {audio_file}\n")
-            f.write(f"Model: {self.model_choice.GetString(self.model_choice.GetSelection())}\n\n")
+            f.write(f"Source: {audio_file}\n\n")  # Add source file info
             f.write(transcription)
             
         return save_path
-
-    def on_transcriber_changed(self, event):
-        """Handle transcriber type selection"""
-        transcriber_name = self.transcriber_choice.GetString(self.transcriber_choice.GetSelection())
         
-        # Create new transcriber instance
-        self.transcriber = self.registry.get_transcriber(transcriber_name)
-        
-        # Update model choices
-        self.model_choice.SetItems(self.transcriber.get_available_models())
-        self.model_choice.SetSelection(0)
-        
-        # Initialize model in background
-        self.transcribe_btn.Enable(False)
-        self.status_text.SetLabel("Initializing model...")
-        
-        thread = threading.Thread(target=self.init_model)
-        thread.start()
-
-    def on_model_changed(self, event):
-        """Handle model selection change"""
-        self.transcribe_btn.Enable(False)
-        self.status_text.SetLabel("Initializing model...")
-        
-        thread = threading.Thread(target=self.init_model)
-        thread.start()
-
     def init_model(self):
         """Initialize the model in a separate thread"""
         try:
             wx.CallAfter(self.status_text.SetLabel, "Initializing model...")
-            model_id = self.model_choice.GetString(self.model_choice.GetSelection())
-            self.transcriber.initialize_model(model_id)
+            self.transcriber.initialize_model()
             wx.CallAfter(self.on_model_loaded)
         except Exception as e:
             wx.CallAfter(self.status_text.SetLabel, f"Error loading model: {str(e)}")
