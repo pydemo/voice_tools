@@ -291,40 +291,63 @@ class AudioRecorder:
         self.recording = False
         speaker_file = self.current_filename
         
-        # Save microphone recording
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        mic_filename = join(out_dir, f'mic_recording_{timestamp}.wav')
-        
         try:
-            # Close speaker recording
-            if self.stream:
-                self.stream.stop_stream()
-                self.stream.close()
-                self.stream = None
-                
-            if self.wave_file:
-                self.wave_file.close()
-                self.wave_file = None
-                
-            if hasattr(self, 'audio_speaker'):
-                self.audio_speaker.terminate()
-                
+            # Save microphone recording
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            mic_filename = join(out_dir, f'mic_recording_{timestamp}.wav')
+            
+            # Properly close streams first
+            try:
+                if self.stream:
+                    self.stream.stop_stream()
+                    time.sleep(0.1)  # Give a small delay for cleanup
+                    self.stream.close()
+                    self.stream = None
+            except Exception as e:
+                self._log(f"Error closing speaker stream: {str(e)}")
+
+            # Close wave file
+            try:
+                if self.wave_file:
+                    self.wave_file.close()
+                    self.wave_file = None
+            except Exception as e:
+                self._log(f"Error closing wave file: {str(e)}")
+
             # Save microphone recording
             if self.frames:
-                wf = wave.open(mic_filename, 'wb')
-                wf.setnchannels(self.current_channels)
-                wf.setsampwidth(self.audio_mic.get_sample_size(self.FORMAT))
-                wf.setframerate(self.RATE)
-                wf.writeframes(b''.join(self.frames))
-                wf.close()
-                
-            if hasattr(self, 'audio_mic'):
-                self.audio_mic.terminate()
-                
+                try:
+                    wf = wave.open(mic_filename, 'wb')
+                    wf.setnchannels(self.current_channels)
+                    wf.setsampwidth(self.audio_mic.get_sample_size(self.FORMAT))
+                    wf.setframerate(self.RATE)
+                    wf.writeframes(b''.join(self.frames))
+                    wf.close()
+                except Exception as e:
+                    self._log(f"Error saving microphone recording: {str(e)}")
+                    mic_filename = None
+            else:
+                mic_filename = None
+
+            # Clean up audio instances
+            try:
+                if hasattr(self, 'audio_speaker'):
+                    self.audio_speaker.terminate()
+                    delattr(self, 'audio_speaker')
+            except Exception as e:
+                self._log(f"Error terminating speaker audio: {str(e)}")
+
+            try:
+                if hasattr(self, 'audio_mic'):
+                    self.audio_mic.terminate()
+                    delattr(self, 'audio_mic')
+            except Exception as e:
+                self._log(f"Error terminating microphone audio: {str(e)}")
+
             return mic_filename, speaker_file
             
         except Exception as e:
-            self._log(f"Error stopping recordings: {str(e)}")
+            self._log(f"Error in stop_both_recordings: {str(e)}")
             return None, None
     
     def __del__(self):
