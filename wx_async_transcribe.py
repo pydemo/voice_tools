@@ -7,6 +7,9 @@ import sys
 from datetime import datetime
 from abc import ABC, abstractmethod
 import torchaudio
+import  subprocess
+import platform
+
 
 class BaseTranscriber(ABC):
     """Abstract base class for transcribers"""
@@ -207,6 +210,9 @@ class TranscriptionFrame(wx.Frame):
             path=os.path.join(self.script_dir, "")
         )
         file_sizer.Add(self.file_picker, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
+        self.play_audio_btn = wx.Button(panel, label='Play Audio')
+        self.play_audio_btn.Bind(wx.EVT_BUTTON, self.on_play_audio)
+        file_sizer.Add(self.play_audio_btn, flag=wx.ALL, border=5)
 
         # Transcriber and model selection
         selector_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -263,6 +269,27 @@ class TranscriptionFrame(wx.Frame):
 
         # Initialize first transcriber
         self.on_transcriber_changed(None)
+    def on_play_audio(self, event):
+        """Handle play audio button click"""
+        audio_file = self.file_picker.GetPath()
+        if not audio_file:
+            wx.MessageBox("Please select an audio file first", "Error", wx.OK | wx.ICON_ERROR)
+            return
+
+        self.play_audio(audio_file) 
+    def play_audio(self, file_name):
+        """Plays an audio file using the default system media player."""
+        try:
+            if platform.system() == "Darwin":  # macOS
+                subprocess.run(['open', file_name], check=True)
+            elif platform.system() == "Windows":  # Windows
+                subprocess.run(['start', file_name], shell=True, check=True)
+            elif platform.system() == "Linux":  # Linux
+                subprocess.run(['xdg-open', file_name], check=True)
+            else:
+                self.log_message("Unsupported OS for automatic playback.")
+        except Exception as e:
+            self.log_message(f"Error playing audio: {str(e)}")        
     def on_copy(self, event):
             """Copy transcription text to the system clipboard"""
             transcription_text = self.output_ctrl.GetValue()

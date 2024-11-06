@@ -1,0 +1,1 @@
+start "" python "wx_async_transcribe.py"
