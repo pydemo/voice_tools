@@ -10,13 +10,133 @@ import os
 import subprocess   
 import platform
 from pprint import pprint as pp 
-
+import traceback
+import pyaudio
 
 out_dir = 'output'
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 file_prefix=f'call_{timestamp}'
 os.makedirs(join(out_dir,file_prefix), exist_ok=True)
+from pydub import AudioSegment
+import noisereduce as nr
+import numpy as np
+from scipy.io import wavfile
+import os
+from datetime import datetime
+class AudioEnhancer:
+    def __init__(self, output_dir='output'):
+        self.output_dir = output_dir
+        self._callback = None
+        
+    def set_callback(self, callback):
+        self._callback = callback
+    
+    def _log(self, message):
+        if self._callback:
+            self._callback(message)        
+        
+    def enhance_recording(self, input_file, prefix=None):
+        """Apply audio enhancements to recording with dynamic parameters"""
+        try:
+            self._log(f"Loading audio file: {input_file}")
+            # Load audio file
+            rate, data = wavfile.read(input_file)
+            
+            # Convert to float32 for processing
+            data = data.astype(np.float32, order='C') / 32768.0
 
+            # Calculate appropriate FFT size based on data length
+            data_length = len(data)
+            if data_length < 2:
+                self._log("Audio file too short to process")
+                return None
+                
+            # Choose FFT size that's power of 2 and less than data length
+            n_fft = min(2048, 2**int(np.log2(data_length)))
+            
+            # Normalize audio levels first
+            self._log("Normalizing audio levels...")
+            abs_max = np.abs(data).max()
+            if abs_max > 0:
+                normalized = data / abs_max * 0.9  # Leave some headroom
+            else:
+                normalized = data
+
+            # Only apply noise reduction if we have enough samples
+            if data_length > n_fft:
+                self._log(f"Reducing background noise (FFT size: {n_fft})...")
+                try:
+                    reduced_noise = nr.reduce_noise(
+                        y=normalized,
+                        sr=rate,
+                        stationary=True,
+                        prop_decrease=0.75,
+                        n_fft=n_fft,
+                        n_std_thresh_stationary=1.5
+                    )
+                except Exception as e:
+                    self._log(f"Noise reduction failed: {str(e)}, using normalized audio")
+                    reduced_noise = normalized
+            else:
+                self._log("Audio too short for noise reduction, using normalized audio")
+                reduced_noise = normalized
+                
+            # Save enhanced audio
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if prefix is None:
+                prefix = os.path.splitext(os.path.basename(input_file))[0]
+                
+            output_file = os.path.join(
+                self.output_dir,
+                f'{prefix}_enhanced_{timestamp}.wav'
+            )
+            
+            # Convert back to int16
+            output_data = (reduced_noise * 32768.0).astype(np.int16)
+            
+            self._log("Saving enhanced audio...")
+            wavfile.write(output_file, rate, output_data)
+            
+            return output_file
+            
+        except Exception as e:
+            self._log(f"Error during audio enhancement: {str(e)}")
+            import traceback
+            self._log(f"Stack trace !!!!: {traceback.format_exc()}")
+            
+            
+    def enhance_conversation(self, mic_file, speaker_file):
+        """Enhance both sides of a conversation"""
+        try:
+            # Create enhanced conversation directory
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            conv_dir = os.path.join(self.output_dir, f'enhanced_{timestamp}')
+            os.makedirs(conv_dir, exist_ok=True)
+            
+            results = {
+                'mic': None,
+                'speaker': None
+            }
+            
+            if mic_file and os.path.exists(mic_file) and os.path.getsize(mic_file) > 0:
+                self._log("Enhancing your side of conversation...")
+                results['mic'] = self.enhance_recording(
+                    mic_file,
+                    f'mic_{timestamp}'
+                )
+                
+            if speaker_file and os.path.exists(speaker_file) and os.path.getsize(speaker_file) > 0:
+                self._log("Enhancing other side of conversation...")
+                results['speaker'] = self.enhance_recording(
+                    speaker_file,
+                    f'speaker_{timestamp}'
+                )
+                
+            return results
+            
+        except Exception as e:
+            self._log(f"Error enhancing conversation: {str(e)}")
+            return None
 class AudioRecorder:
     def __init__(self):
         self.FORMAT = pyaudio.paInt16
@@ -376,6 +496,8 @@ class AudioRecorderFrame(wx.Frame):
         # Initialize recorder
         self.recorder = AudioRecorder()
         self.recorder.set_callback(self.log_message)
+        self.enhancer=AudioEnhancer('enhanced')
+        self.recorder.set_callback(self.log_message)
         self.last_mic_file = None
         self.last_speaker_file = None        
         wx.CallAfter(self.Raise)
@@ -460,6 +582,20 @@ class AudioRecorderFrame(wx.Frame):
         button_sizer.Add(self.file_prefix, 0, wx.ALL, 5)
         button_sizer.Add(self.update_prefix_btn, 0, wx.ALL, 5)
         button_sizer.Add(self.both_btn, 0, wx.ALL, 5)
+        if 1:
+            enhance_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            self.enhance_last_btn = wx.Button(panel, label='Enhance Last Recording')
+            self.enhance_both_btn = wx.Button(panel, label='Enhance Conversation')
+            
+            enhance_sizer.Add(self.enhance_last_btn, 0, wx.ALL, 5)
+            enhance_sizer.Add(self.enhance_both_btn, 0, wx.ALL, 5)
+            
+            main_sizer.Add(enhance_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+            
+            # Bind enhancement events
+            self.enhance_last_btn.Bind(wx.EVT_BUTTON, self.on_enhance_last)
+            self.enhance_both_btn.Bind(wx.EVT_BUTTON, self.on_enhance_conversation)
+
         
         # Bind events
         self.mic_choice.Bind(wx.EVT_CHOICE, self.on_mic_change)
@@ -483,13 +619,68 @@ class AudioRecorderFrame(wx.Frame):
         main_sizer.Add(button_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         
         panel.SetSizer(main_sizer)
+        self.last_recording = None
         
         # Add status bar
         self.CreateStatusBar()
         self.SetStatusText('Ready')
         wx.CallAfter(self.Raise)
         wx.CallLater(500, self.Raise)
-    
+    def on_enhance_last(self, event):
+        """Enhance the most recent recording"""
+        if not hasattr(self, 'last_recording'):
+            self.log_message("No recent recording to enhance")
+            return
+            
+        if not os.path.exists(self.last_recording):
+            self.log_message("Recording file not found")
+            return
+            
+        if os.path.getsize(self.last_recording) == 0:
+            self.log_message("Recording file is empty")
+            return
+            
+        def enhance_thread():
+            try:
+                self.SetStatusText('Enhancing audio...')
+                enhanced_file = self.enhancer.enhance_recording(self.last_recording)
+                
+                if enhanced_file:
+                    wx.CallAfter(self.log_message, f"Enhanced audio saved to: {enhanced_file}")
+                else:
+                    wx.CallAfter(self.log_message, "Enhancement failed")
+            except Exception as e:
+                wx.CallAfter(self.log_message, f"Enhancement error: {str(e)}")
+            finally:
+                wx.CallAfter(self.SetStatusText, 'Ready')
+        
+        threading.Thread(target=enhance_thread, daemon=True).start()
+
+    def on_enhance_conversation(self, event):
+        """Enhance both sides of the conversation"""
+        if not (hasattr(self, 'last_mic_file') and hasattr(self, 'last_speaker_file')):
+            self.log_message("No conversation recordings available")
+            return
+            
+        def enhance_thread():
+            self.SetStatusText('Enhancing conversation...')
+            results = self.enhancer.enhance_conversation(
+                self.last_mic_file,
+                self.last_speaker_file
+            )
+            
+            if results:
+                wx.CallAfter(self.log_message, "Conversation enhancement complete")
+                if results['mic']:
+                    wx.CallAfter(self.log_message, f"Enhanced mic audio: {results['mic']}")
+                if results['speaker']:
+                    wx.CallAfter(self.log_message, f"Enhanced speaker audio: {results['speaker']}")
+            else:
+                wx.CallAfter(self.log_message, "Enhancement failed")
+            wx.CallAfter(self.SetStatusText, 'Ready')
+        
+        threading.Thread(target=enhance_thread).start()
+
 
     # Inside the AudioRecorderFrame class
     def on_transcribe_mic(self, event):
@@ -509,7 +700,7 @@ class AudioRecorderFrame(wx.Frame):
             self.log_message(f"Transcription started for: {file_name}")
         else:
             self.log_message("No microphone recording available to transcribe.")
-    def on_transcribe_mic_speaker(self, event):
+    def on_transcribe_speaker(self, event):
         if self.last_speaker_file:
             file_name = self.last_speaker_file
             
@@ -703,10 +894,12 @@ class AudioRecorderFrame(wx.Frame):
                 self.mic_record_btn.SetLabel('Record Microphone')
                 self.speaker_record_btn.Enable()
                 self.last_mic_file = filename
+                self.last_recording=filename
             else:
                 self.speaker_record_btn.SetLabel('Record Speaker')
                 self.mic_record_btn.Enable()
                 self.last_speaker_file = filename
+                self.last_recording=filename
             
             self.both_btn.Enable()
             self.SetStatusText('Ready')
@@ -732,6 +925,7 @@ class AudioRecorderFrame(wx.Frame):
             mic_file, speaker_file = self.recorder.stop_both_recordings()
             self.last_mic_file = mic_file
             self.last_speaker_file = speaker_file
+            self.last_recording=speaker_file
             if mic_file:
                 self.log_message(f"Microphone recording saved to: {mic_file}")
             if speaker_file:
