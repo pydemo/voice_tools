@@ -472,8 +472,8 @@ class AudioRecorderFrame(wx.Frame):
         self.update_prefix_btn.Bind(wx.EVT_BUTTON, self.on_update_prefix) 
         self.both_btn.Bind(wx.EVT_BUTTON, self.on_both)
         self.file_prefix.Bind(wx.EVT_TEXT, self.on_file_prefix)
-        self.transcribe_mic_btn.Bind(wx.EVT_BUTTON, self.on_transcribe)
-        self.transcribe_speaker_btn.Bind(wx.EVT_BUTTON, self.on_transcribe)
+        self.transcribe_mic_btn.Bind(wx.EVT_BUTTON, self.on_transcribe_mic)
+        self.transcribe_speaker_btn.Bind(wx.EVT_BUTTON, self.on_transcribe_speaker)
 
         
         # Add everything to main sizer
@@ -492,7 +492,7 @@ class AudioRecorderFrame(wx.Frame):
     
 
     # Inside the AudioRecorderFrame class
-    def on_transcribe(self, event):
+    def on_transcribe_mic(self, event):
         if self.last_mic_file:
             file_name = self.last_mic_file
             
@@ -509,7 +509,23 @@ class AudioRecorderFrame(wx.Frame):
             self.log_message(f"Transcription started for: {file_name}")
         else:
             self.log_message("No microphone recording available to transcribe.")
+    def on_transcribe_mic_speaker(self, event):
+        if self.last_speaker_file:
+            file_name = self.last_speaker_file
+            
+            def transcribe_in_background():
+                try:
+                    pp(['python', 'wx_async_transcribe.py', file_name])
+                    subprocess.run(['python', 'wx_async_transcribe.py', file_name], check=True, shell=True)
+                    wx.CallAfter(self.log_message, f"Transcription completed for: {file_name}")
+                except Exception as e:
+                    wx.CallAfter(self.log_message, f"Error during transcription: {str(e)}")
 
+            # Start transcription in a new thread
+            threading.Thread(target=transcribe_in_background, daemon=True).start()
+            self.log_message(f"Transcription started for: {file_name}")
+        else:
+            self.log_message("No microphone recording available to transcribe.")
 
     def _on_transcribe(self, event):
         if self.last_mic_file:
