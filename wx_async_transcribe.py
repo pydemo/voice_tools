@@ -1,14 +1,59 @@
 import wx
-import torch
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-import threading
 import os
 import sys
+import threading
 from datetime import datetime
 from abc import ABC, abstractmethod
-import torchaudio
-import  subprocess
-import platform
+args=sys.argv
+DEFAULT_FILE_NAME = None
+if args[1]:
+    DEFAULT_FILE_NAME = args[1]
+    assert os.path.exists(DEFAULT_FILE_NAME), "Speech File not found"
+
+def show_import_progress():
+    """Function to show a progress dialog during imports and run imports sequentially in the main thread."""
+    app = wx.App()
+
+    # Create the progress dialog in the main thread
+    progress_dialog = wx.ProgressDialog(
+        "Loading Modules", "Initializing imports...",
+        maximum=100, parent=None, style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE
+    )
+
+
+
+    progress_dialog.Update(20, "Loading torch...")
+    import torch
+
+    progress_dialog.Update(30, "Loading transformers...")
+    from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+
+    progress_dialog.Update(40, "Loading threading...")
+    import threading
+
+    progress_dialog.Update(50, "Loading OS...")
+    import os
+
+    progress_dialog.Update(60, "Loading sys...")
+    import sys
+
+    progress_dialog.Update(70, "Loading datetime...")
+    from datetime import datetime
+
+    progress_dialog.Update(80, "Loading abstract base class...")
+    from abc import ABC, abstractmethod
+
+    progress_dialog.Update(90, "Loading torchaudio...")
+    import torchaudio
+
+    progress_dialog.Update(100, "Finalizing imports...")
+    import subprocess
+    import platform
+
+    # Close the progress dialog
+    progress_dialog.Destroy()
+    
+    app.MainLoop()
 
 
 class BaseTranscriber(ABC):
@@ -30,9 +75,7 @@ class BaseTranscriber(ABC):
     def name(self):
         pass
 
-import torchaudio
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
-import torch
+
 
 class HuggingFaceTranscriber(BaseTranscriber):
     def __init__(self):
@@ -175,7 +218,8 @@ class TranscriberRegistry:
 
 class TranscriptionFrame(wx.Frame):
     def __init__(self):
-        super().__init__(parent=None, title='Audio Transcription Tool', size=(800, 600))
+        super().__init__(parent=None, title='Audio Transcription Tool', size=(800, 600),
+                         style=wx.DEFAULT_FRAME_STYLE | wx.STAY_ON_TOP)
 
         # Initialize transcriber registry
         self.registry = TranscriberRegistry()
@@ -210,6 +254,7 @@ class TranscriptionFrame(wx.Frame):
             path=os.path.join(self.script_dir, "")
         )
         file_sizer.Add(self.file_picker, proportion=1, flag=wx.EXPAND|wx.ALL, border=5)
+        self.file_picker.SetPath(DEFAULT_FILE_NAME)
         self.play_audio_btn = wx.Button(panel, label='Play Audio')
         self.play_audio_btn.Bind(wx.EVT_BUTTON, self.on_play_audio)
         file_sizer.Add(self.play_audio_btn, flag=wx.ALL, border=5)
@@ -310,7 +355,7 @@ class TranscriptionFrame(wx.Frame):
             # This happens when paths are on different drives
             return None
 
-    def save_transcription(self, audio_file, transcription):
+    def _save_transcription(self, audio_file, transcription):
         """Save transcription to file maintaining directory structure"""
         # Get relative path of audio file
         rel_path = self.get_relative_path(audio_file)
@@ -346,6 +391,27 @@ class TranscriptionFrame(wx.Frame):
             f.write(transcription)
 
         return save_path
+
+    def save_transcription(self, audio_file, transcription):
+        """Save transcription to the same directory as the source audio file with the same base name and .txt extension."""
+        # Get the directory and base name of the audio file
+        audio_dir = os.path.dirname(audio_file)
+        audio_basename = os.path.splitext(os.path.basename(audio_file))[0]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Create the transcription filename with .txt extension
+        filename = f"{audio_basename}_{timestamp}.txt"
+
+        # Full path to save the transcription file in the same directory as the audio file
+        save_path = os.path.join(audio_dir, filename)
+
+        # Save transcription to the specified path
+        with open(save_path, 'w', encoding='utf-8') as f:
+            f.write(f"Source: {audio_file}\n")
+            f.write(f"Model: {self.model_choice.GetString(self.model_choice.GetSelection())}\n\n")
+            f.write(transcription)
+
+        return save_path
+    
 
     def on_transcriber_changed(self, event):
         """Handle transcriber type selection"""
@@ -461,9 +527,24 @@ class TranscriptionFrame(wx.Frame):
 
 def main():
     app = wx.App()
+
+    # Initialize the main frame after progress is done
     frame = TranscriptionFrame()
     frame.Show()
     app.MainLoop()
 
-if __name__ == '__main__':
-    main()
+
+
+
+if __name__ == "__main__":
+    show_import_progress()  # Show progress and import modules
+    import torch
+    from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+    import torchaudio
+    import subprocess
+    import platform
+    import os
+    import sys
+    from datetime import datetime
+    from abc import ABC, abstractmethod    
+    main() 

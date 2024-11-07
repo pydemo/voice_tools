@@ -9,6 +9,7 @@ import time
 import os
 import subprocess   
 import platform
+from pprint import pprint as pp 
 
 
 out_dir = 'output'
@@ -377,9 +378,12 @@ class AudioRecorderFrame(wx.Frame):
         self.recorder.set_callback(self.log_message)
         self.last_mic_file = None
         self.last_speaker_file = None        
-        
+        wx.CallAfter(self.Raise)
+        wx.CallLater(500, self.Raise)        
         self.init_ui()
         self.populate_devices()
+        wx.CallAfter(self.Raise)
+        wx.CallLater(500, self.Raise)        
         self.log_message("Application started")
         
     def init_ui(self):
@@ -405,11 +409,16 @@ class AudioRecorderFrame(wx.Frame):
         self.mic_choice = wx.Choice(panel)
         self.mic_record_btn = wx.Button(panel, label='Record Microphone')
         self.play_mic_btn = wx.Button(panel, label='Play Mic')
+        self.transcribe_mic_btn = wx.Button(panel, label='Transcribe')
         
         mic_device_sizer.Add(mic_label, 0, wx.ALL | wx.CENTER, 5)
         mic_device_sizer.Add(self.mic_choice, 1, wx.ALL | wx.EXPAND, 5)
         mic_device_sizer.Add(self.mic_record_btn, 0, wx.ALL, 5)
         mic_device_sizer.Add(self.play_mic_btn, 0, wx.ALL, 5)
+        mic_device_sizer.Add(self.transcribe_mic_btn, 0, wx.ALL, 5)
+        self.transcribe_mic_btn.SetForegroundColour(wx.Colour(0, 128, 0))  # Green border color
+        self.transcribe_mic_btn.SetBackgroundColour(wx.Colour(255, 255, 255))  # White background color
+
         
         mic_sizer.Add(mic_device_sizer, 0, wx.ALL | wx.EXPAND, 5)
         
@@ -422,11 +431,15 @@ class AudioRecorderFrame(wx.Frame):
         self.speaker_choice = wx.Choice(panel)
         self.speaker_record_btn = wx.Button(panel, label='Record Speaker')
         self.play_speaker_btn = wx.Button(panel, label='Play Speaker')
-        
+        self.transcribe_speaker_btn = wx.Button(panel, label='Transcribe')
         speaker_device_sizer.Add(speaker_label, 0, wx.ALL | wx.CENTER, 5)
         speaker_device_sizer.Add(self.speaker_choice, 1, wx.ALL | wx.EXPAND, 5)
         speaker_device_sizer.Add(self.speaker_record_btn, 0, wx.ALL, 5)
         speaker_device_sizer.Add(self.play_speaker_btn, 0, wx.ALL, 5)
+        speaker_device_sizer.Add(self.transcribe_speaker_btn, 0, wx.ALL, 5)
+        self.transcribe_speaker_btn.SetForegroundColour(wx.Colour(0, 128, 0))  # Green border color
+        self.transcribe_speaker_btn.SetBackgroundColour(wx.Colour(255, 255, 255))  # White background color
+
         
         speaker_sizer.Add(speaker_device_sizer, 0, wx.ALL | wx.EXPAND, 5)
         
@@ -436,10 +449,16 @@ class AudioRecorderFrame(wx.Frame):
         # add text ctrl for file prefix
         
         self.file_prefix= wx.TextCtrl(panel, value=file_prefix)
+        self.update_prefix_btn = wx.Button(panel, label='Update Prefix')
         self.both_btn = wx.Button(panel, label='Record Both')
+        self.both_btn.SetForegroundColour(wx.Colour(200, 100, 100))  # Green border color
+        self.both_btn.SetBackgroundColour(wx.Colour(255, 255, 255)) 
+        
+
         
         button_sizer.Add(self.refresh_btn, 0, wx.ALL, 5)
         button_sizer.Add(self.file_prefix, 0, wx.ALL, 5)
+        button_sizer.Add(self.update_prefix_btn, 0, wx.ALL, 5)
         button_sizer.Add(self.both_btn, 0, wx.ALL, 5)
         
         # Bind events
@@ -450,8 +469,12 @@ class AudioRecorderFrame(wx.Frame):
         self.refresh_btn.Bind(wx.EVT_BUTTON, self.on_refresh)
         self.play_mic_btn.Bind(wx.EVT_BUTTON, self.on_play_mic)
         self.play_speaker_btn.Bind(wx.EVT_BUTTON, self.on_play_speaker)
+        self.update_prefix_btn.Bind(wx.EVT_BUTTON, self.on_update_prefix) 
         self.both_btn.Bind(wx.EVT_BUTTON, self.on_both)
         self.file_prefix.Bind(wx.EVT_TEXT, self.on_file_prefix)
+        self.transcribe_mic_btn.Bind(wx.EVT_BUTTON, self.on_transcribe)
+        self.transcribe_speaker_btn.Bind(wx.EVT_BUTTON, self.on_transcribe)
+
         
         # Add everything to main sizer
         main_sizer.Add(self.log_list, 1, wx.ALL | wx.EXPAND, 5)
@@ -464,6 +487,63 @@ class AudioRecorderFrame(wx.Frame):
         # Add status bar
         self.CreateStatusBar()
         self.SetStatusText('Ready')
+        wx.CallAfter(self.Raise)
+        wx.CallLater(500, self.Raise)
+    
+
+    # Inside the AudioRecorderFrame class
+    def on_transcribe(self, event):
+        if self.last_mic_file:
+            file_name = self.last_mic_file
+            
+            def transcribe_in_background():
+                try:
+                    pp(['python', 'wx_async_transcribe.py', file_name])
+                    subprocess.run(['python', 'wx_async_transcribe.py', file_name], check=True, shell=True)
+                    wx.CallAfter(self.log_message, f"Transcription completed for: {file_name}")
+                except Exception as e:
+                    wx.CallAfter(self.log_message, f"Error during transcription: {str(e)}")
+
+            # Start transcription in a new thread
+            threading.Thread(target=transcribe_in_background, daemon=True).start()
+            self.log_message(f"Transcription started for: {file_name}")
+        else:
+            self.log_message("No microphone recording available to transcribe.")
+
+
+    def _on_transcribe(self, event):
+        if self.last_mic_file:
+            file_name = self.last_mic_file
+
+            def transcribe_in_background():
+                try:
+                    command = ['python', 'wx_async_transcribe.py', file_name]
+                    
+                    # Platform-specific settings to bring window to the top
+                    if platform.system() == 'Windows':
+                        command = ['start', 'cmd', '/c'] + command  # Uses start command to launch with focus
+                    elif platform.system() == 'Darwin':  # macOS
+                        command = ['open', '-a', 'Terminal'] + command
+                    elif platform.system() == 'Linux':
+                        command = ['gnome-terminal', '--'] + command  # Or 'xterm -hold -e' based on your terminal
+                    subprocess.run(command, check=True, shell=True)
+                    
+                    wx.CallAfter(self.log_message, f"Transcription completed for: {file_name}")
+                except Exception as e:
+                    wx.CallAfter(self.log_message, f"Error during transcription: {str(e)}")
+
+            # Start transcription in a new thread
+            threading.Thread(target=transcribe_in_background, daemon=True).start()
+            self.log_message(f"Transcription started for: {file_name}")
+        else:
+            self.log_message("No microphone recording available to transcribe.")
+
+    def on_update_prefix(self, event):
+        global file_prefix
+        file_prefix = self.file_prefix.GetValue()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_prefix=f'call_{timestamp}'
+        self.file_prefix.SetValue(file_prefix)
     def play_audio(self, file_name):
         """Plays an audio file using the default system media player."""
         try:
@@ -651,4 +731,5 @@ if __name__ == '__main__':
     app = wx.App()
     frame = AudioRecorderFrame()
     frame.Show()
+    frame.Raise()
     app.MainLoop()
