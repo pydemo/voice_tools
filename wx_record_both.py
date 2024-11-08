@@ -6,6 +6,7 @@ from os.path import join
 from datetime import datetime
 import threading
 import time
+import win32gui
 import os
 import subprocess   
 import platform
@@ -576,12 +577,16 @@ class AudioRecorderFrame(wx.Frame):
         self.both_btn.SetForegroundColour(wx.Colour(200, 100, 100))  # Green border color
         self.both_btn.SetBackgroundColour(wx.Colour(255, 255, 255)) 
         
-
+        if 1:
+            self.transcribe_both_btn = wx.Button(panel, label='Transcribe Both')
+            self.transcribe_both_btn.SetForegroundColour(wx.Colour(0, 128, 0))  # Green border color
+            self.transcribe_both_btn.SetBackgroundColour(wx.Colour(255, 255, 255))         
         
         button_sizer.Add(self.refresh_btn, 0, wx.ALL, 5)
         button_sizer.Add(self.file_prefix, 0, wx.ALL, 5)
         button_sizer.Add(self.update_prefix_btn, 0, wx.ALL, 5)
         button_sizer.Add(self.both_btn, 0, wx.ALL, 5)
+        button_sizer.Add(self.transcribe_both_btn, 0, wx.ALL, 5)
         if 1:
             enhance_sizer = wx.BoxSizer(wx.HORIZONTAL)
             self.enhance_last_btn = wx.Button(panel, label='Enhance Last Recording')
@@ -590,13 +595,23 @@ class AudioRecorderFrame(wx.Frame):
             enhance_sizer.Add(self.enhance_last_btn, 0, wx.ALL, 5)
             enhance_sizer.Add(self.enhance_both_btn, 0, wx.ALL, 5)
             
-            main_sizer.Add(enhance_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+            
             
             # Bind enhancement events
             self.enhance_last_btn.Bind(wx.EVT_BUTTON, self.on_enhance_last)
             self.enhance_both_btn.Bind(wx.EVT_BUTTON, self.on_enhance_conversation)
-
-        
+        if 1:
+            self.toggle_btn = wx.Button(panel, label="Stop Monitoring", pos=(20, 50))
+            self.toggle_btn.Bind(wx.EVT_BUTTON, self.on_toggle)
+            
+            # Initialize monitoring flag
+            self.is_monitoring = True
+            
+            # Start monitoring thread
+            self.monitor_thread = threading.Thread(target=self.monitor_windows, daemon=True)
+            self.monitor_thread.start()          
+            enhance_sizer.Add(self.toggle_btn, 0, wx.ALL, 5)  
+        main_sizer.Add(enhance_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         # Bind events
         self.mic_choice.Bind(wx.EVT_CHOICE, self.on_mic_change)
         self.speaker_choice.Bind(wx.EVT_CHOICE, self.on_speaker_change)
@@ -610,6 +625,7 @@ class AudioRecorderFrame(wx.Frame):
         self.file_prefix.Bind(wx.EVT_TEXT, self.on_file_prefix)
         self.transcribe_mic_btn.Bind(wx.EVT_BUTTON, self.on_transcribe_mic)
         self.transcribe_speaker_btn.Bind(wx.EVT_BUTTON, self.on_transcribe_speaker)
+        self.transcribe_both_btn.Bind(wx.EVT_BUTTON, self.on_transcribe_both)
 
         
         # Add everything to main sizer
@@ -626,6 +642,45 @@ class AudioRecorderFrame(wx.Frame):
         self.SetStatusText('Ready')
         wx.CallAfter(self.Raise)
         wx.CallLater(500, self.Raise)
+    def on_transcribe_both(self, event):
+        self.on_transcribe_mic(None)
+        self.on_transcribe_speaker(None)
+    def on_toggle(self, event):
+        self.is_monitoring = not self.is_monitoring
+        if self.is_monitoring:
+            self.toggle_btn.SetLabel("Stop Monitoring")
+            self.status_text.SetLabel("Monitoring for PhoneLink...")
+        else:
+            self.toggle_btn.SetLabel("Start Monitoring")
+            self.status_text.SetLabel("Monitoring stopped")
+    
+    def bring_to_front(self):
+        # Bring this window to front
+        if self.IsIconized():
+            self.Iconize(False)
+        self.Raise()
+        self.SetFocus()
+    
+    def monitor_windows(self):
+        while True:
+            if self.is_monitoring:
+                try:
+                    # Get the foreground window
+                    hwnd = win32gui.GetForegroundWindow()
+                    title = win32gui.GetWindowText(hwnd)
+                    
+                    # Check if PhoneLink is in the title
+                    if 'Phone Link' in title:
+                        # Use CallAfter to safely update GUI from another thread
+                        wx.CallAfter(self.bring_to_front)
+                        wx.CallAfter(self.status_text.SetLabel, f"PhoneLink detected: {title}")
+                    
+                except Exception as e:
+                    print(f"Error: {e}")
+            
+            # Sleep to prevent high CPU usage
+            time.sleep(0.5)
+
     def on_enhance_last(self, event):
         """Enhance the most recent recording"""
         if not hasattr(self, 'last_recording'):

@@ -453,6 +453,7 @@ class TranscriptionFrame(wx.Frame):
         """Called when model is finished loading"""
         self.status_text.SetLabel("Model loaded - ready to transcribe")
         self.transcribe_btn.Enable(True)
+        wx.CallAfter(self.on_transcribe, None)
 
     def update_progress(self, progress, message):
         """Update the progress bar and status message"""
