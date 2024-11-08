@@ -13,6 +13,7 @@ import platform
 from pprint import pprint as pp 
 import traceback
 import pyaudio
+import sounddevice as sd
 
 out_dir = 'output'
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -504,7 +505,7 @@ class AudioRecorderFrame(wx.Frame):
         wx.CallAfter(self.Raise)
         wx.CallLater(500, self.Raise)        
         self.init_ui()
-        self.populate_devices()
+        #self.populate_devices()
         wx.CallAfter(self.Raise)
         wx.CallLater(500, self.Raise)        
         self.log_message("Application started")
@@ -528,14 +529,55 @@ class AudioRecorderFrame(wx.Frame):
         mic_sizer = wx.StaticBoxSizer(mic_box, wx.VERTICAL)
         
         mic_device_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        mic_label = wx.StaticText(panel, label='Microphone:')
-        self.mic_choice = wx.Choice(panel)
-        self.mic_record_btn = wx.Button(panel, label='Record Microphone')
+        #mic_label = wx.StaticText(panel, label='Microphone 1:')
+        if 1:        
+            devices = sd.query_devices()
+            self.input_devices = [(i, dev) for i, dev in enumerate(devices) 
+                                if dev['max_input_channels'] > 0]
+            
+            device_names = [f"{dev['name']} (Ch: {dev['max_input_channels']})" 
+                        for _, dev in self.input_devices]
+            
+            self.mic_choice = wx.Choice(panel, choices=device_names)
+            if device_names:
+                self.mic_choice.SetSelection(0)
+            self.mic_choice.Bind(wx.EVT_CHOICE, self.on_device_change)
+        if 1:
+            # Add status displays
+            self.volume_text = wx.StaticText(panel, label="Volume: ---")
+            self.mute_indicator = wx.StaticText(panel, label="State: Unknown")
+            self.mute_indicator.SetForegroundColour(wx.RED)
+            
+        if 1:
+            # Initialize monitoring flag and current device
+            self.is_monitoring = True
+            self.current_device_id = self.input_devices[0][0] if self.input_devices else None
+            
+            # Start monitoring thread if we have devices
+            if self.current_device_id is not None:
+                self.monitor_thread = threading.Thread(target=self.monitor_microphone, daemon=True)
+                self.monitor_thread.start()
+            else:
+                self.volume_text.SetLabel("No microphone devices found")
+                self.mute_indicator.SetLabel("Please check your audio settings")
+            
+   
+            
+            # Bind close event
+            self.Bind(wx.EVT_CLOSE, self.on_close)
+
+
+            
+        #self.mic_choice = wx.Choice(panel)
+        self.mic_record_btn = wx.Button(panel, label='Record Microphone 1')
         self.play_mic_btn = wx.Button(panel, label='Play Mic')
         self.transcribe_mic_btn = wx.Button(panel, label='Transcribe')
         
-        mic_device_sizer.Add(mic_label, 0, wx.ALL | wx.CENTER, 5)
+        #mic_device_sizer.Add(mic_label, 0, wx.ALL | wx.CENTER, 5)
+        mic_device_sizer.Add(self.volume_text, 1, wx.ALL | wx.EXPAND, 5)
+        mic_device_sizer.Add(self.mute_indicator, 1, wx.ALL | wx.EXPAND, 5)        
         mic_device_sizer.Add(self.mic_choice, 1, wx.ALL | wx.EXPAND, 5)
+
         mic_device_sizer.Add(self.mic_record_btn, 0, wx.ALL, 5)
         mic_device_sizer.Add(self.play_mic_btn, 0, wx.ALL, 5)
         mic_device_sizer.Add(self.transcribe_mic_btn, 0, wx.ALL, 5)
@@ -613,7 +655,7 @@ class AudioRecorderFrame(wx.Frame):
             enhance_sizer.Add(self.toggle_btn, 0, wx.ALL, 5)  
         main_sizer.Add(enhance_sizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         # Bind events
-        self.mic_choice.Bind(wx.EVT_CHOICE, self.on_mic_change)
+        #self.mic_choice.Bind(wx.EVT_CHOICE, self.on_mic_change)
         self.speaker_choice.Bind(wx.EVT_CHOICE, self.on_speaker_change)
         self.mic_record_btn.Bind(wx.EVT_BUTTON, lambda evt: self.on_record(evt, "mic"))
         self.speaker_record_btn.Bind(wx.EVT_BUTTON, lambda evt: self.on_record(evt, "speaker"))
@@ -642,6 +684,59 @@ class AudioRecorderFrame(wx.Frame):
         self.SetStatusText('Ready')
         wx.CallAfter(self.Raise)
         wx.CallLater(500, self.Raise)
+    def monitor_microphone(self):
+        CHUNK_SIZE = 1024
+        while self.is_monitoring:
+            try:
+                with sd.InputStream(device=self.current_device_id, 
+                                  channels=1, 
+                                  samplerate=44100,
+                                  blocksize=CHUNK_SIZE) as stream:
+                    while self.is_monitoring:
+                        data, overflowed = stream.read(CHUNK_SIZE)
+                        volume_norm = float(abs(data).mean())
+                        
+                        # Check if there's any signal (arbitrary threshold)
+                        is_active = volume_norm > 0.001
+                        
+                        wx.CallAfter(self.update_display, volume_norm, is_active)
+                        
+                        time.sleep(0.1)  # Update 10 times per second
+                        
+            except Exception as e:
+                print(f"Error monitoring device: {e}")
+                wx.CallAfter(self.update_error, str(e))
+                time.sleep(1)  # Wait before retrying
+    
+    def update_display(self, volume, is_active):
+        # Update volume level (convert to dB for better representation)
+        volume_db = 20 * (volume + 1e-10)  # Add small number to avoid log(0)
+        volume_percent = min(100, max(0, int(volume_db * 100)))
+        self.volume_text.SetLabel(f"Volume: {volume_percent}%")
+        
+        # Update activity state
+        if is_active:
+            self.mute_indicator.SetLabel("State: ACTIVE")
+            self.mute_indicator.SetForegroundColour(wx.GREEN)
+        else:
+            self.mute_indicator.SetLabel("State: SILENT")
+            self.mute_indicator.SetForegroundColour(wx.RED)
+    
+    def update_error(self, error_msg):
+        self.volume_text.SetLabel("Error")
+        self.mute_indicator.SetLabel(f"Error: {error_msg}")
+        self.mute_indicator.SetForegroundColour(wx.RED)
+    
+    def on_device_change(self, event):
+        selected_idx = self.mic_choice.GetSelection()
+        if selected_idx != wx.NOT_FOUND:
+            self.current_device_id = self.input_devices[selected_idx][0]
+            print(f"Selected device id: {self.current_device_id}")
+    
+    def on_close(self, event):
+        self.is_monitoring = False
+        time.sleep(0.6)  # Give thread time to clean up
+        self.Destroy()        
     def on_transcribe_both(self, event):
         self.on_transcribe_mic(None)
         self.on_transcribe_speaker(None)
